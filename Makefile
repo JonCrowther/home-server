@@ -1,4 +1,4 @@
-APP            := living-room-lamps
+APP            := home-server
 
 # Docker Hub username; required for `make push`. Override per-invocation
 # (make push DOCKER_USER=you) or export it in your shell.

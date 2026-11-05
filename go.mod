@@ -1,3 +1,3 @@
-module github.com/JonCrowther/living-room-lamps.git
+module github.com/JonCrowther/home-server
 
 go 1.27.1
