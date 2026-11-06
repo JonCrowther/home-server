@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/JonCrowther/home-server/lifx"
 )
 
 func main() {
@@ -17,8 +19,17 @@ func main() {
 
 	addr := ":" + envOr("PORT", "8080")
 
+	lifxToken, ok := os.LookupEnv("LIFX_TOKEN")
+	if !ok || lifxToken == "" {
+		slog.Error("LIFX_TOKEN not set")
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /lights", lifx.LoadLights(lifxToken))
+	mux.HandleFunc("PUT /lights/states", lifx.SetMultipleLights(lifxToken))
+	mux.HandleFunc("PUT /lights/{selector}/state", lifx.SetLight(lifxToken))
 
 	srv := &http.Server{
 		Addr:              addr,
