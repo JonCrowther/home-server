@@ -28,6 +28,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /lights", lifx.LoadLights(lifxToken))
+	mux.HandleFunc("GET /scenes", lifx.GetScenes(lifxToken))
+	mux.HandleFunc("PUT /scenes/{uuid}/activate", lifx.SetScene(lifxToken))
 	mux.HandleFunc("PUT /lights/states", lifx.SetMultipleLights(lifxToken))
 	mux.HandleFunc("PUT /lights/{selector}/state", lifx.SetLight(lifxToken))
 

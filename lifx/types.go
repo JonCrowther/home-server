@@ -125,3 +125,32 @@ func ToLight(m map[string]any) Light {
 		},
 	}
 }
+
+// Scene is a trimmed-down LIFX scene. The per-light colour data LIFX returns
+// (the "chain" of zone colours) is dropped, since it is large and not needed
+// to list or activate a scene.
+type Scene struct {
+	UUID   string       `json:"uuid"`
+	Name   string       `json:"name"`
+	States []SceneState `json:"states"`
+}
+
+// SceneState is the light a scene applies to and the power it sets.
+type SceneState struct {
+	Selector string `json:"selector"`
+	Power    string `json:"power"`
+}
+
+// SceneOptions are the optional settings when activating a scene.
+type SceneOptions struct {
+	// Time in seconds to transition from the current light state to the scene
+	// state. A pointer so an explicit 0 (instant) is distinguishable from
+	// "not set", which LIFX treats as 1.
+	Duration *float64 `json:"duration,omitempty"`
+	// Properties that should not be changed on devices when applying the
+	// scene. Any of "power", "infrared", "duration", "intensity", "hue",
+	// "saturation", "brightness" or "kelvin".
+	Ignore []string `json:"ignore,omitempty"`
+	// Execute the query fast, without initial state checks and wait for no results.
+	Fast bool `json:"fast,omitempty"`
+}
