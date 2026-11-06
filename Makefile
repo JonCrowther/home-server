@@ -26,8 +26,9 @@ help: ## Show available targets
 build: ## Build the Go binary into bin/
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/$(APP) .
 
-run: ## Run the server locally with go run
-	PORT=$(PORT) go run .
+run: ## Run the server locally with go run (loads $(ENV_FILE))
+	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) not found; copy .env.example to $(ENV_FILE) and set LIFX_TOKEN"; exit 1; }
+	set -a; . ./$(ENV_FILE); set +a; PORT=$(PORT) go run .
 
 test: ## Run Go tests
 	go test ./...
