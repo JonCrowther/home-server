@@ -13,6 +13,10 @@ PLATFORMS      ?= linux/arm64
 
 PORT           ?= 8080
 
+# File holding runtime secrets (e.g. LIFX_TOKEN); passed to `docker run --env-file`.
+# Keep it out of git and the image (see .gitignore / .dockerignore).
+ENV_FILE       ?= .env
+
 .DEFAULT_GOAL := help
 .PHONY: help build run test vet image image-run push clean
 
@@ -35,7 +39,8 @@ image: ## Build the Docker image and load it into local Docker
 	docker buildx build --platform $(LOCAL_PLATFORM) -t $(IMAGE):$(TAG) --load .
 
 image-run: image ## Build and run the image locally on $(PORT)
-	docker run --rm -p $(PORT):8080 $(IMAGE):$(TAG)
+	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) not found; copy .env.example to $(ENV_FILE) and set LIFX_TOKEN"; exit 1; }
+	docker run --rm --env-file $(ENV_FILE) -p $(PORT):8080 $(IMAGE):$(TAG)
 
 push: ## Build for $(PLATFORMS) and push to Docker Hub (needs DOCKER_USER)
 	@test -n "$(DOCKER_USER)" || { echo "DOCKER_USER is not set, e.g. make push DOCKER_USER=yourname"; exit 1; }
