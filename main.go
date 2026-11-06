@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/JonCrowther/home-server/lifx"
+	"github.com/JonCrowther/home-server/nhl"
 )
 
 func main() {
@@ -25,6 +26,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Kubernetes sends SIGTERM when stopping a pod; shut down gracefully.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /lights", lifx.LoadLights(lifxToken))
@@ -32,6 +37,7 @@ func main() {
 	mux.HandleFunc("PUT /scenes/{uuid}/activate", lifx.SetScene(lifxToken))
 	mux.HandleFunc("PUT /lights/states", lifx.SetMultipleLights(lifxToken))
 	mux.HandleFunc("PUT /lights/{selector}/state", lifx.SetLight(lifxToken))
+	mux.HandleFunc("POST /games/{id}/watch", nhl.WatchGame(ctx))
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -41,10 +47,6 @@ func main() {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-
-	// Kubernetes sends SIGTERM when stopping a pod; shut down gracefully.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		slog.Info("starting server", "addr", addr)
