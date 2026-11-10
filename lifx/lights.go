@@ -1,0 +1,90 @@
+package lifx
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+)
+
+// LoadLights returns a handler that lists all lights as JSON.
+func LoadLights(token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		url := "https://api.lifx.com/v1/lights"
+
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, fmt.Sprintf("%s: %s", resp.Status, body), http.StatusBadGateway)
+			return
+		}
+
+		var maps []map[string]any
+		if err := json.Unmarshal(body, &maps); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		lights := make([]Light, 0, len(maps))
+		for _, m := range maps {
+			lights = append(lights, ToLight(m))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(lights); err != nil {
+			slog.Error("encoding lights response", "err", err)
+		}
+	}
+}
+
+// SetLight returns a handler that applies a LightState (JSON body) to the
+// selector in the {selector} path value, e.g. PUT /lights/{selector}/state.
+func SetLight(token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		selector := r.PathValue("selector")
+		endpoint := "https://api.lifx.com/v1/lights/" + url.PathEscape(selector) + "/state"
+
+		var state LightState
+		if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		putToLIFX(w, r, token, endpoint, state)
+	}
+}
+
+// SetMultipleLights returns a handler that applies several states at once.
+// The JSON body mirrors LIFX's own: {"states": [{"selector": "...", ...}]}.
+func SetMultipleLights(token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			States []SelectorState `json:"states"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		putToLIFX(w, r, token, "https://api.lifx.com/v1/lights/states", payload)
+	}
+}
