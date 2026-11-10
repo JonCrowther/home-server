@@ -1,6 +1,7 @@
 package lifx
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -85,15 +86,22 @@ func GetScenes(token string) http.HandlerFunc {
 // takes SceneOptions.
 func SetScene(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		uuid := r.PathValue("uuid")
-		endpoint := "https://api.lifx.com/v1/scenes/scene_id:" + url.PathEscape(uuid) + "/activate"
-
 		var opts SceneOptions
 		if err := json.NewDecoder(r.Body).Decode(&opts); err != nil && err != io.EOF {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		putToLIFX(w, r, token, endpoint, opts)
+		if err := ActivateScene(r.Context(), token, r.PathValue("uuid"), opts); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// ActivateScene activates the scene with the given UUID.
+func ActivateScene(ctx context.Context, token, uuid string, opts SceneOptions) error {
+	endpoint := "https://api.lifx.com/v1/scenes/scene_id:" + url.PathEscape(uuid) + "/activate"
+	return sendToLIFX(ctx, http.MethodPut, token, endpoint, opts)
 }

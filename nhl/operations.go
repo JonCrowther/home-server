@@ -10,12 +10,18 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/JonCrowther/home-server/lifx"
 )
 
 const pollInterval = 10 * time.Second
 
+// goalLights is the LIFX selector for the lights that celebrate a goal.
+var goalLights = lifx.MakeSelector(lifx.Group, "Living Room")
+
 type team struct {
-	Score      int `json:"score"`
+	Abbrev     string `json:"abbrev"`
+	Score      int    `json:"score"`
 	CommonName struct {
 		Default string `json:"default"`
 	} `json:"commonName"`
@@ -27,13 +33,25 @@ type boxscore struct {
 	HomeTeam  team   `json:"homeTeam"`
 }
 
-// WatchGame returns a handler, e.g. POST /games/{id}/watch, that starts
-// watching a game in the background and responds 202 straight away.
+// team returns whichever side of the game has the given abbreviation.
+func (b boxscore) team(abbrev string) (team, bool) {
+	switch abbrev {
+	case b.AwayTeam.Abbrev:
+		return b.AwayTeam, true
+	case b.HomeTeam.Abbrev:
+		return b.HomeTeam, true
+	}
+	return team{}, false
+}
+
+// WatchGame returns a handler, e.g. POST /games/{id}/watch/{team}, that starts
+// watching one team's score in a game in the background and responds 202
+// straight away. {team} is the team's abbreviation, e.g. "EDM".
 //
 // ctx should be the server's lifetime context, not the request's: the request
 // context is cancelled as soon as the response is written, which would stop
-// the watcher immediately.
-func WatchGame(ctx context.Context) http.HandlerFunc {
+// the watcher immediately. token is the LIFX token used to celebrate goals.
+func WatchGame(ctx context.Context, token string) http.HandlerFunc {
 	var (
 		mu       sync.Mutex
 		watching = map[string]bool{}
@@ -45,24 +63,31 @@ func WatchGame(ctx context.Context) http.HandlerFunc {
 			http.Error(w, "game id must be 10 digits, e.g. 2026020260", http.StatusBadRequest)
 			return
 		}
-
-		mu.Lock()
-		if watching[gameID] {
-			mu.Unlock()
-			http.Error(w, "already watching game "+gameID, http.StatusConflict)
+		teamAbbrev := r.PathValue("team")
+		if !validTeam(teamAbbrev) {
+			http.Error(w, "team must be 3 upper case letters, e.g. EDM", http.StatusBadRequest)
 			return
 		}
-		watching[gameID] = true
+
+		// Keyed on game and team, so both sides of one game can be watched.
+		key := gameID + "/" + teamAbbrev
+		mu.Lock()
+		if watching[key] {
+			mu.Unlock()
+			http.Error(w, "already watching "+teamAbbrev+" in game "+gameID, http.StatusConflict)
+			return
+		}
+		watching[key] = true
 		mu.Unlock()
 
 		go func() {
 			defer func() {
 				mu.Lock()
-				delete(watching, gameID)
+				delete(watching, key)
 				mu.Unlock()
 			}()
-			if err := watchGame(ctx, gameID); err != nil && !errors.Is(err, context.Canceled) {
-				slog.Error("watching game", "game", gameID, "err", err)
+			if err := watchGame(ctx, token, gameID, teamAbbrev); err != nil && !errors.Is(err, context.Canceled) {
+				slog.Error("watching game", "game", gameID, "team", teamAbbrev, "err", err)
 			}
 		}()
 
@@ -82,14 +107,30 @@ func validGameID(id string) bool {
 	return true
 }
 
-// watchGame polls the boxscore for gameID (e.g. "2026020260") and prints a
-// line whenever either team's score changes. It returns nil once the game's
-// state is anything other than "LIVE", or ctx.Err() if ctx is cancelled first.
-func watchGame(ctx context.Context, gameID string) error {
+func validTeam(abbrev string) bool {
+	if len(abbrev) != 3 {
+		return false
+	}
+	for _, c := range abbrev {
+		if c < 'A' || c > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+// watchGame polls the boxscore for gameID (e.g. "2026020260") and celebrates
+// with the lights whenever teamAbbrev scores. It returns nil once the game is
+// no longer live, an error if teamAbbrev isn't playing in the game, or
+// ctx.Err() if ctx is cancelled first.
+func watchGame(ctx context.Context, token, gameID, teamAbbrev string) error {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	var prev *boxscore
+	// Look the colours up once per watch rather than on every goal.
+	from, to := goalColours(ctx, teamAbbrev)
+
+	var prev *team
 	for {
 		cur, err := fetchBoxscore(ctx, gameID)
 		fmt.Println(cur)
@@ -97,11 +138,15 @@ func watchGame(ctx context.Context, gameID string) error {
 			// Transient failures shouldn't end the watch; try again next tick.
 			slog.Error("polling boxscore", "game", gameID, "err", err)
 		} else {
-			if prev != nil {
-				reportChange(prev.AwayTeam, cur.AwayTeam)
-				reportChange(prev.HomeTeam, cur.HomeTeam)
+			watched, ok := cur.team(teamAbbrev)
+			if !ok {
+				return fmt.Errorf("team %s is not playing in game %s (%s vs %s)",
+					teamAbbrev, gameID, cur.AwayTeam.Abbrev, cur.HomeTeam.Abbrev)
 			}
-			prev = &cur
+			if prev != nil {
+				reportChange(ctx, token, *prev, watched, from, to)
+			}
+			prev = &watched
 
 			// The game is running if either LIVE or CRIT (last 5 minutes)
 			if cur.GameState != "LIVE" && cur.GameState != "CRIT" {
@@ -118,9 +163,17 @@ func watchGame(ctx context.Context, gameID string) error {
 	}
 }
 
-func reportChange(before, after team) {
-	if before.Score != after.Score {
-		fmt.Printf("%s score changed: %d -> %d\n", after.CommonName.Default, before.Score, after.Score)
+// reportChange celebrates by pulsing between the from and to colours if the
+// team's score went up. A drop (a goal taken back after review) is only logged.
+func reportChange(ctx context.Context, token string, before, after team, from, to lifx.Colour) {
+	switch {
+	case after.Score > before.Score:
+		slog.Info("goal", "team", after.Abbrev, "from", before.Score, "to", after.Score)
+		if err := lifx.CelebrateGoal(ctx, token, goalLights, from, to); err != nil {
+			slog.Error("celebrating goal", "team", after.Abbrev, "err", err)
+		}
+	case after.Score < before.Score:
+		slog.Info("goal taken back", "team", after.Abbrev, "from", before.Score, "to", after.Score)
 	}
 }
 

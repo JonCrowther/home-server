@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // PulseOptions are the settings for a pulse effect.
@@ -81,4 +82,33 @@ func SetPulse(ctx context.Context, token, selector string, opts PulseOptions) er
 
 	endpoint := "https://api.lifx.com/v1/lights/" + escaped + "/effects/pulse"
 	return sendToLIFX(ctx, http.MethodPost, token, endpoint, payload)
+}
+
+// CelebrateGoal pulses the lights matching selector between from and to,
+// waits for the pulse to finish, then activates the all-warm scene. It blocks
+// for the length of the pulse.
+func CelebrateGoal(ctx context.Context, token, selector string, from, to Colour) error {
+	opts := PulseOptions{
+		Colour:     to,
+		FromColour: &from,
+		Period:     0.5,
+		Cycles:     15,
+	}
+	if err := SetPulse(ctx, token, selector, opts); err != nil {
+		return fmt.Errorf("pulsing: %w", err)
+	}
+
+	// The pulse API returns as soon as the effect starts. Activating the
+	// scene straight away would cut the pulse off, so wait for it to end.
+	wait := time.Duration(opts.Period * opts.Cycles * float64(time.Second))
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(wait):
+	}
+
+	if err := ActivateScene(ctx, token, allWarmScene, SceneOptions{}); err != nil {
+		return fmt.Errorf("activating scene: %w", err)
+	}
+	return nil
 }

@@ -37,7 +37,7 @@ func main() {
 	mux.HandleFunc("PUT /scenes/{uuid}/activate", lifx.SetScene(lifxToken))
 	mux.HandleFunc("PUT /lights/states", lifx.SetMultipleLights(lifxToken))
 	mux.HandleFunc("PUT /lights/{selector}/state", lifx.SetLight(lifxToken))
-	mux.HandleFunc("POST /games/{id}/watch", nhl.WatchGame(ctx))
+	mux.HandleFunc("POST /games/{id}/watch/{team}", nhl.WatchGame(ctx, lifxToken))
 	mux.HandleFunc("POST /lights/test", lifx.TestLights(lifxToken))
 
 	srv := &http.Server{

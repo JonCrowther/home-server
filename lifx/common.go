@@ -9,6 +9,10 @@ import (
 	"net/http"
 )
 
+const (
+	allWarmScene = "36e579f0-1160-4da3-92a3-e6e270f3cf48"
+)
+
 var (
 	HabsRed = Colour{
 		Hue:        354,
@@ -19,6 +23,16 @@ var (
 		Hue:        234,
 		Saturation: 0.76,
 		Brightness: 0.41,
+	}
+	OilersOrange = Colour{
+		Hue:        18,
+		Saturation: 1,
+		Brightness: 1,
+	}
+	OilersBlue = Colour{
+		Hue:        215,
+		Saturation: 0.94,
+		Brightness: 0.26,
 	}
 )
 

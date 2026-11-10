@@ -1,6 +1,8 @@
 package lifx
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -67,6 +69,51 @@ func (c Colour) String() string {
 	add("brightness", c.Brightness)
 	add("kelvin", float64(c.Kelvin))
 	return strings.Join(parts, " ")
+}
+
+// ColourFromHex converts an RGB hex code such as "#F47A38" to a Colour.
+//
+// Because String drops zero-valued fields, two cases are adjusted so the
+// colour still comes out right on the bulb:
+//   - A hue of 0 (pure red) is stored as 360, the same point on the colour
+//     wheel, so it isn't dropped and left as the bulb's current hue.
+//   - Greys and white have no saturation, so they are expressed as 6500K
+//     white instead, which LIFX treats as saturation 0.
+//
+// Black has a brightness of 0, which a bulb can't show; its String is "".
+func ColourFromHex(hex string) (Colour, error) {
+	var r, g, b uint8
+	if _, err := fmt.Sscanf(strings.TrimPrefix(hex, "#"), "%02x%02x%02x", &r, &g, &b); err != nil {
+		return Colour{}, fmt.Errorf("parsing hex colour %q: %w", hex, err)
+	}
+
+	rf, gf, bf := float64(r)/255, float64(g)/255, float64(b)/255
+	maxC := math.Max(rf, math.Max(gf, bf))
+	delta := maxC - math.Min(rf, math.Min(gf, bf))
+
+	if delta == 0 {
+		return Colour{Brightness: maxC, Kelvin: 6500}, nil
+	}
+
+	var hue float64
+	switch maxC {
+	case rf:
+		hue = 60 * math.Mod((gf-bf)/delta, 6)
+	case gf:
+		hue = 60 * ((bf-rf)/delta + 2)
+	default:
+		hue = 60 * ((rf-gf)/delta + 4)
+	}
+	if hue <= 0 {
+		hue += 360
+	}
+
+	round := func(v float64) float64 { return math.Round(v*100) / 100 }
+	return Colour{
+		Hue:        math.Round(hue),
+		Saturation: round(delta / maxC),
+		Brightness: round(maxC),
+	}, nil
 }
 
 type LightState struct {
