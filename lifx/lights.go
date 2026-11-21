@@ -77,9 +77,7 @@ func SetLight(token string) http.HandlerFunc {
 // The JSON body mirrors LIFX's own: {"states": [{"selector": "...", ...}]}.
 func SetMultipleLights(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var payload struct {
-			States []SelectorState `json:"states"`
-		}
+		var payload statesRequest
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

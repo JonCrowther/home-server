@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 const (
@@ -76,6 +78,56 @@ func sendToLIFX(ctx context.Context, method, token, endpoint string, payload any
 		return fmt.Errorf("%s: %s", resp.Status, respBody)
 	}
 	return nil
+}
+
+// setFromColour works around LIFX ignoring from_color on effects: it sets the
+// bulbs to from first, so the effect starts from it as the "current" colour.
+// A nil from leaves the bulbs as they are. escapedSelector must already be
+// path-escaped.
+func setFromColour(ctx context.Context, token, escapedSelector string, from *Colour) error {
+	if from == nil {
+		return nil
+	}
+	if from.String() == "" {
+		return errors.New("from colour is empty")
+	}
+	instant := 0.0
+	state := LightState{Colour: *from, Duration: &instant}
+	endpoint := "https://api.lifx.com/v1/lights/" + escapedSelector + "/state"
+	if err := sendToLIFX(ctx, http.MethodPut, token, endpoint, state); err != nil {
+		return fmt.Errorf("setting from colour: %w", err)
+	}
+	return nil
+}
+
+// StopEffects stops any running firmware effect (pulse, breathe, flame,
+// morph) on the lights matching selector, leaving them on.
+func StopEffects(ctx context.Context, token, selector string) error {
+	endpoint := "https://api.lifx.com/v1/lights/" + url.PathEscape(selector) + "/effects/off"
+	return sendToLIFX(ctx, http.MethodPost, token, endpoint, struct{}{})
+}
+
+// Stop returns a handler that resets the lights: it stops any running effect
+// on the lights matching the selector query parameter (default "all"), then
+// activates the all-warm scene, e.g. POST /lights/stop?selector=group:Living%20Room.
+// Responds 204 on success or 502 if either LIFX call fails.
+func Stop(token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		selector := r.URL.Query().Get("selector")
+		if selector == "" {
+			selector = MakeSelector(All, "")
+		}
+
+		if err := StopEffects(r.Context(), token, selector); err != nil {
+			http.Error(w, fmt.Sprintf("stopping effects: %v", err), http.StatusBadGateway)
+			return
+		}
+		if err := ActivateScene(r.Context(), token, allWarmScene, SceneOptions{}); err != nil {
+			http.Error(w, fmt.Sprintf("activating scene: %v", err), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // Placeholder API function for testing light related code

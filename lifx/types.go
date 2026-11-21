@@ -1,6 +1,7 @@
 package lifx
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -71,6 +72,14 @@ func (c Colour) String() string {
 	return strings.Join(parts, " ")
 }
 
+// MarshalJSON encodes the colour as its LIFX colour string, which is the form
+// LIFX's endpoints expect. This lets option structs holding Colours be sent to
+// LIFX as they are. Decoding still uses the struct fields, so request bodies
+// can give colours as {"hue": ..., "saturation": ...}.
+func (c Colour) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.String())
+}
+
 // ColourFromHex converts an RGB hex code such as "#F47A38" to a Colour.
 //
 // Because String drops zero-valued fields, two cases are adjusted so the
@@ -119,16 +128,24 @@ func ColourFromHex(hex string) (Colour, error) {
 type LightState struct {
 	// The power state you want to set on the selector. on or off
 	Power string `json:"power,omitempty"`
-	// The colour to set the light to.
-	Colour Colour `json:"color"`
+	// The colour to set the light to. Left out if zero.
+	Colour Colour `json:"color,omitzero"`
 	// The brightness level from 0.0 to 1.0. Overrides any brightness set in color (if any).
 	Brightness float64 `json:"brightness,omitempty"`
 	// How long in seconds you want the power action to take. Range: 0.0 – 3155760000.0 (100 years)
-	Duration float64 `json:"duration,omitempty"`
+	// A pointer so an explicit 0 (instant) is distinguishable from "not set",
+	// which LIFX treats as 1.
+	Duration *float64 `json:"duration,omitempty"`
 	// The maximum brightness of the infrared channel from 0.0 to 1.0.
 	Infrared float64 `json:"infrared,omitempty"`
 	// Execute the query fast, without initial state checks and wait for no results.
 	Fast bool `json:"fast,omitempty"`
+}
+
+// statesRequest is the body of LIFX's PUT /lights/states, which sets several
+// selectors at once.
+type statesRequest struct {
+	States []SelectorState `json:"states"`
 }
 
 // SelectorState pairs a selector with the state to set on it.

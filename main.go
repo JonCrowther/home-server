@@ -37,6 +37,11 @@ func main() {
 	mux.HandleFunc("PUT /scenes/{uuid}/activate", lifx.SetScene(lifxToken))
 	mux.HandleFunc("PUT /lights/states", lifx.SetMultipleLights(lifxToken))
 	mux.HandleFunc("PUT /lights/{selector}/state", lifx.SetLight(lifxToken))
+	mux.HandleFunc("POST /lights/{selector}/breathe", lifx.Breathe(lifxToken))
+	mux.HandleFunc("POST /lights/sweep", lifx.Sweep(ctx, lifxToken))
+	mux.HandleFunc("POST /lights/{selector}/flames", lifx.Flame(lifxToken))
+	mux.HandleFunc("POST /lights/stop", lifx.Stop(lifxToken))
+	mux.HandleFunc("POST /lights/{selector}/morph", lifx.Morph(lifxToken))
 	mux.HandleFunc("POST /games/{id}/watch/{team}", nhl.WatchGame(ctx, lifxToken))
 	mux.HandleFunc("POST /lights/test", lifx.TestLights(lifxToken))
 
