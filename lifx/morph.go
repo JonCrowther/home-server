@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 )
 
 // MorphOptions are the settings for a morph effect, which slowly blends a
@@ -36,14 +35,13 @@ func SetMorph(ctx context.Context, token, selector string, opts MorphOptions) er
 		}
 	}
 
-	endpoint := "https://api.lifx.com/v1/lights/" + url.PathEscape(selector) + "/effects/morph"
-	return sendToLIFX(ctx, http.MethodPost, token, endpoint, opts)
+	return startEffect(ctx, token, selector, "morph", opts)
 }
 
-// morphSunset is the default palette for Morph. Red uses a hue of 360 rather
-// than 0, because Colour.String drops zero fields.
+// morphSunset is the default palette for Morph. Palette brightness is
+// ignored, so only hue and saturation matter.
 var morphSunset = []Colour{
-	{Hue: 360, Saturation: 1}, // red
+	red,
 	{Hue: 25, Saturation: 1},  // orange
 	{Hue: 45, Saturation: 1},  // amber
 	{Hue: 330, Saturation: 1}, // pink
@@ -74,10 +72,6 @@ func Morph(token string) http.HandlerFunc {
 			return
 		}
 
-		if err := SetMorph(r.Context(), token, r.PathValue("selector"), opts); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		writeResult(w, SetMorph(r.Context(), token, r.PathValue("selector"), opts))
 	}
 }

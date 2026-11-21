@@ -2,57 +2,110 @@ package lifx
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
-	"log/slog"
 	"net/http"
-	"net/url"
 )
+
+// LightState is a state to set on lights, and the state reported for a light
+// by LoadLights.
+type LightState struct {
+	// The power state you want to set on the selector. on or off
+	Power string `json:"power,omitempty"`
+	// The colour to set the light to. Left out if zero.
+	Colour Colour `json:"color,omitzero"`
+	// The brightness level from 0.0 to 1.0. Overrides any brightness set in color (if any).
+	Brightness float64 `json:"brightness,omitempty"`
+	// How long in seconds you want the power action to take. Range: 0.0 – 3155760000.0 (100 years)
+	// A pointer so an explicit 0 (instant) is distinguishable from "not set",
+	// which LIFX treats as 1.
+	Duration *float64 `json:"duration,omitempty"`
+	// The maximum brightness of the infrared channel from 0.0 to 1.0.
+	Infrared float64 `json:"infrared,omitempty"`
+	// Execute the query fast, without initial state checks and wait for no results.
+	Fast bool `json:"fast,omitempty"`
+}
+
+// SelectorState pairs a selector with the state to set on it.
+type SelectorState struct {
+	Selector string `json:"selector"`
+	LightState
+}
+
+// statesRequest is the body of LIFX's PUT /lights/states, which sets several
+// selectors at once.
+type statesRequest struct {
+	States []SelectorState `json:"states"`
+}
+
+// Light is a trimmed-down LIFX light, as returned by LoadLights.
+type Light struct {
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	GroupID      string     `json:"group_id"`
+	GroupName    string     `json:"group_name"`
+	LocationID   string     `json:"location_id"`
+	LocationName string     `json:"location_name"`
+	MaxKelvin    int        `json:"max_kelvin"`
+	MinKelvin    int        `json:"min_kelvin"`
+	State        LightState `json:"light_state"`
+}
+
+// lifxLight is the part of a light in LIFX's GET /lights response that Light
+// keeps. Decoding into it ignores everything else LIFX sends.
+type lifxLight struct {
+	ID         string  `json:"id"`
+	Label      string  `json:"label"`
+	Power      string  `json:"power"`
+	Brightness float64 `json:"brightness"`
+	Colour     Colour  `json:"color"`
+	Group      struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"group"`
+	Location struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"location"`
+	Product struct {
+		Capabilities struct {
+			MinKelvin int `json:"min_kelvin"`
+			MaxKelvin int `json:"max_kelvin"`
+		} `json:"capabilities"`
+	} `json:"product"`
+}
+
+// toLight flattens a LIFX light into a Light.
+func (l lifxLight) toLight() Light {
+	return Light{
+		ID:           l.ID,
+		Name:         l.Label,
+		GroupID:      l.Group.ID,
+		GroupName:    l.Group.Name,
+		LocationID:   l.Location.ID,
+		LocationName: l.Location.Name,
+		MaxKelvin:    l.Product.Capabilities.MaxKelvin,
+		MinKelvin:    l.Product.Capabilities.MinKelvin,
+		State: LightState{
+			Power:      l.Power,
+			Brightness: l.Brightness,
+			Colour:     l.Colour,
+		},
+	}
+}
 
 // LoadLights returns a handler that lists all lights as JSON.
 func LoadLights(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		url := "https://api.lifx.com/v1/lights"
-
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		if resp.StatusCode != http.StatusOK {
-			http.Error(w, fmt.Sprintf("%s: %s", resp.Status, body), http.StatusBadGateway)
-			return
-		}
-
-		var maps []map[string]any
-		if err := json.Unmarshal(body, &maps); err != nil {
+		var raw []lifxLight
+		if err := getFromLIFX(r.Context(), token, apiBase+"/lights", &raw); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 
-		lights := make([]Light, 0, len(maps))
-		for _, m := range maps {
-			lights = append(lights, ToLight(m))
+		lights := make([]Light, 0, len(raw))
+		for _, l := range raw {
+			lights = append(lights, l.toLight())
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(lights); err != nil {
-			slog.Error("encoding lights response", "err", err)
-		}
+		writeJSON(w, lights)
 	}
 }
 
@@ -60,16 +113,13 @@ func LoadLights(token string) http.HandlerFunc {
 // selector in the {selector} path value, e.g. PUT /lights/{selector}/state.
 func SetLight(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		selector := r.PathValue("selector")
-		endpoint := "https://api.lifx.com/v1/lights/" + url.PathEscape(selector) + "/state"
-
 		var state LightState
 		if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		putToLIFX(w, r, token, endpoint, state)
+		putToLIFX(w, r, token, lightsURL(r.PathValue("selector"), "state"), state)
 	}
 }
 
@@ -83,6 +133,6 @@ func SetMultipleLights(token string) http.HandlerFunc {
 			return
 		}
 
-		putToLIFX(w, r, token, "https://api.lifx.com/v1/lights/states", payload)
+		putToLIFX(w, r, token, apiBase+"/lights/states", payload)
 	}
 }

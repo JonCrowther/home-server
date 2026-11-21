@@ -81,6 +81,12 @@ func TeamColours(ctx context.Context, slug string) ([]Colour, error) {
 	return nil, fmt.Errorf("no team colours found for %s", slug)
 }
 
+// oilersBlue and oilersOrange are the fallback goal colours.
+var (
+	oilersBlue   = lifx.Colour{Hue: 215, Saturation: 0.94, Brightness: 0.26}
+	oilersOrange = lifx.Colour{Hue: 18, Saturation: 1, Brightness: 1}
+)
+
 // goalColours returns the first two of a team's colours that a bulb can show,
 // to pulse between when it scores. Colours with no brightness (black) are
 // skipped. If the colours can't be found, it logs why and falls back to the
@@ -89,7 +95,7 @@ func goalColours(ctx context.Context, abbrev string) (from, to lifx.Colour) {
 	colours, err := goalColoursFor(ctx, abbrev)
 	if err != nil {
 		slog.Warn("using default goal colours", "team", abbrev, "err", err)
-		return lifx.OilersBlue, lifx.OilersOrange
+		return oilersBlue, oilersOrange
 	}
 	return colours[0], colours[1]
 }

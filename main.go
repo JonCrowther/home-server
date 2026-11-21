@@ -43,7 +43,6 @@ func main() {
 	mux.HandleFunc("POST /lights/stop", lifx.Stop(lifxToken))
 	mux.HandleFunc("POST /lights/{selector}/morph", lifx.Morph(lifxToken))
 	mux.HandleFunc("POST /games/{id}/watch/{team}", nhl.WatchGame(ctx, lifxToken))
-	mux.HandleFunc("POST /lights/test", lifx.TestLights(lifxToken))
 
 	srv := &http.Server{
 		Addr:              addr,

@@ -19,13 +19,6 @@ var sweepLights = []string{
 	"Right Lamp Upper",
 }
 
-// sweepRed is the moving colour and sweepBlue the background. Red uses a hue
-// of 360 rather than 0, because Colour.String drops zero fields.
-var (
-	sweepRed  = Colour{Hue: 360, Saturation: 1, Brightness: 1}
-	sweepBlue = Colour{Hue: 240, Saturation: 1, Brightness: 1}
-)
-
 // SweepOptions are the settings for a sweep effect.
 type SweepOptions struct {
 	// Labels of the lights to sweep across, in order. At least two.
@@ -56,13 +49,39 @@ func sweepPositions(lights, passes int) []int {
 	return positions
 }
 
+// sweepFrame is the request for one step of a sweep: the light at index lit
+// gets colour and every other light gets background, each fading over fade
+// seconds.
+func sweepFrame(lights []string, lit int, colour, background Colour, fade float64) statesRequest {
+	req := statesRequest{States: make([]SelectorState, len(lights))}
+	for i, label := range lights {
+		c := background
+		if i == lit {
+			c = colour
+		}
+		req.States[i] = SelectorState{
+			Selector: MakeSelector(Label, label),
+			LightState: LightState{
+				Colour:   c,
+				Duration: &fade,
+				// Don't wait for LIFX to confirm each bulb; keeps steps on time.
+				Fast: true,
+			},
+		}
+	}
+	return req
+}
+
 // RunSweep moves opts.Colour along opts.Lights and back, with every other
 // light set to opts.Background. Each step fades the old light to the
 // background as the next light fades in. It blocks until the sweep ends,
-// then activates the all-warm scene.
+// then activates the all-warm scene. There's no firmware effect to stop, so
+// it skips the stop step of ResetLights.
 //
-// LIFX allows 120 requests a minute, and each step is one request, so keep
-// Step at 0.5 seconds or more.
+// Each step is one request, so a sweep sends 2×(lights-1)×passes+1 requests
+// plus one for the scene: 20 for four lights and three passes. LIFX allows
+// 120 a minute, so a single sweep is fine at any step, but many sweeps in a
+// row at a short step can run into the limit.
 func RunSweep(ctx context.Context, token string, opts SweepOptions) error {
 	if len(opts.Lights) < 2 {
 		return errors.New("sweep needs at least two lights")
@@ -80,29 +99,13 @@ func RunSweep(ctx context.Context, token string, opts SweepOptions) error {
 	for i, lit := range sweepPositions(len(opts.Lights), opts.Passes) {
 		// The first step snaps to the starting pattern; later steps fade
 		// over the whole step so the colour moves smoothly.
-		duration := opts.Step.Seconds()
+		fade := opts.Step.Seconds()
 		if i == 0 {
-			duration = 0
+			fade = 0
 		}
 
-		req := statesRequest{States: make([]SelectorState, len(opts.Lights))}
-		for j, label := range opts.Lights {
-			c := opts.Background
-			if j == lit {
-				c = opts.Colour
-			}
-			req.States[j] = SelectorState{
-				Selector: MakeSelector(Label, label),
-				LightState: LightState{
-					Colour:   c,
-					Duration: &duration,
-					// Don't wait for LIFX to confirm each bulb; keeps steps on time.
-					Fast: true,
-				},
-			}
-		}
-
-		if err := sendToLIFX(ctx, http.MethodPut, token, "https://api.lifx.com/v1/lights/states", req); err != nil {
+		req := sweepFrame(opts.Lights, lit, opts.Colour, opts.Background, fade)
+		if err := sendToLIFX(ctx, http.MethodPut, token, apiBase+"/lights/states", req); err != nil {
 			return fmt.Errorf("sweep step %d: %w", i, err)
 		}
 
@@ -113,10 +116,7 @@ func RunSweep(ctx context.Context, token string, opts SweepOptions) error {
 		}
 	}
 
-	if err := ActivateScene(ctx, token, allWarmScene, SceneOptions{}); err != nil {
-		return fmt.Errorf("activating scene: %w", err)
-	}
-	return nil
+	return activateAllWarm(ctx, token)
 }
 
 // Sweep returns a handler that starts a sweep across the lamps, e.g.
@@ -136,8 +136,8 @@ func Sweep(ctx context.Context, token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		opts := SweepOptions{
 			Lights:     sweepLights,
-			Colour:     sweepRed,
-			Background: sweepBlue,
+			Colour:     red,
+			Background: blue,
 			Step:       200 * time.Millisecond,
 			Passes:     3,
 		}

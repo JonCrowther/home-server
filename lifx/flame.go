@@ -3,7 +3,6 @@ package lifx
 import (
 	"context"
 	"net/http"
-	"net/url"
 )
 
 // FlameOptions are the settings for a flame effect. It is also the JSON body
@@ -24,8 +23,7 @@ type FlameOptions struct {
 // SetFlame starts a flame effect on the lights matching selector. Calling it
 // again on running lights restarts the effect with the new options.
 func SetFlame(ctx context.Context, token, selector string, opts FlameOptions) error {
-	endpoint := "https://api.lifx.com/v1/lights/" + url.PathEscape(selector) + "/effects/flame"
-	return sendToLIFX(ctx, http.MethodPost, token, endpoint, opts)
+	return startEffect(ctx, token, selector, "flame", opts)
 }
 
 // Flame returns a handler that starts a flame effect on the lights in the
@@ -47,10 +45,6 @@ func Flame(token string) http.HandlerFunc {
 			return
 		}
 
-		if err := SetFlame(r.Context(), token, r.PathValue("selector"), opts); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		writeResult(w, SetFlame(r.Context(), token, r.PathValue("selector"), opts))
 	}
 }
