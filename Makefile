@@ -18,13 +18,16 @@ PORT           ?= 8080
 ENV_FILE       ?= .env
 
 .DEFAULT_GOAL := help
-.PHONY: help build run test vet image image-run push clean
+.PHONY: help build build-debug run test vet image image-run push clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build the Go binary into bin/
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/$(APP) .
+
+build-debug: ## Build bin/ binary that logs at DEBUG by default (e.g. every score poll)
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.defaultLogLevel=DEBUG" -o bin/$(APP) .
 
 run: ## Run the server locally with go run (loads $(ENV_FILE))
 	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) not found; copy .env.example to $(ENV_FILE) and set LIFX_TOKEN"; exit 1; }

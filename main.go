@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,8 +15,19 @@ import (
 	"github.com/JonCrowther/home-server/nhl"
 )
 
+// defaultLogLevel is the log level used when LOG_LEVEL isn't set. A debug
+// build overrides it at link time:
+//
+//	go build -ldflags="-X main.defaultLogLevel=DEBUG"
+var defaultLogLevel = "INFO"
+
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(envOr("LOG_LEVEL", defaultLogLevel))); err != nil {
+		fmt.Fprintln(os.Stderr, "invalid LOG_LEVEL:", err)
+		os.Exit(1)
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
 	addr := ":" + envOr("PORT", "8080")
@@ -42,7 +54,10 @@ func main() {
 	mux.HandleFunc("POST /lights/{selector}/flames", lifx.Flame(lifxToken))
 	mux.HandleFunc("POST /lights/stop", lifx.Stop(lifxToken))
 	mux.HandleFunc("POST /lights/{selector}/morph", lifx.Morph(lifxToken))
-	mux.HandleFunc("POST /games/{id}/watch/{team}", nhl.WatchGame(ctx, lifxToken))
+	watcher := nhl.NewWatcher(ctx, lifxToken)
+	mux.HandleFunc("POST /games/{id}/watch/{team}", watcher.WatchGame)
+	mux.HandleFunc("POST /nhl/watch/{team}", watcher.WatchTeam)
+	mux.HandleFunc("DELETE /nhl/watch/{team}", watcher.StopWatch)
 
 	srv := &http.Server{
 		Addr:              addr,
