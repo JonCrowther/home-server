@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -13,7 +14,11 @@ const allWarmScene = "36e579f0-1160-4da3-92a3-e6e270f3cf48"
 // startEffect starts the LIFX firmware effect name (e.g. "flame") on the
 // lights matching selector, sending opts as the request body.
 func startEffect(ctx context.Context, token, selector, name string, opts any) error {
-	return sendToLIFX(ctx, http.MethodPost, token, lightsURL(selector, "effects/"+name), opts)
+	if err := sendToLIFX(ctx, http.MethodPost, token, lightsURL(selector, "effects/"+name), opts); err != nil {
+		return fmt.Errorf("starting %s: %w", name, err)
+	}
+	slog.Info("effect started", "effect", name, "selector", selector)
+	return nil
 }
 
 // setFromColour works around LIFX ignoring from_color on effects: it sets the
@@ -31,20 +36,25 @@ func setFromColour(ctx context.Context, token, selector string, from *Colour) er
 	if err := sendToLIFX(ctx, http.MethodPut, token, lightsURL(selector, "state"), state); err != nil {
 		return fmt.Errorf("setting from colour: %w", err)
 	}
+	slog.Debug("set from colour", "selector", selector, "colour", *from)
 	return nil
 }
 
 // StopEffects stops any running firmware effect (pulse, breathe, flame,
 // morph) on the lights matching selector, leaving them on.
 func StopEffects(ctx context.Context, token, selector string) error {
-	return startEffect(ctx, token, selector, "off", struct{}{})
+	if err := sendToLIFX(ctx, http.MethodPost, token, lightsURL(selector, "effects/off"), struct{}{}); err != nil {
+		return fmt.Errorf("stopping effects: %w", err)
+	}
+	slog.Info("effects stopped", "selector", selector)
+	return nil
 }
 
 // ResetLights stops any running effect on the lights matching selector, then
 // activates the all-warm scene.
 func ResetLights(ctx context.Context, token, selector string) error {
 	if err := StopEffects(ctx, token, selector); err != nil {
-		return fmt.Errorf("stopping effects: %w", err)
+		return err
 	}
 	return activateAllWarm(ctx, token)
 }
@@ -69,6 +79,6 @@ func Stop(token string) http.HandlerFunc {
 			selector = MakeSelector(All, "")
 		}
 
-		writeResult(w, ResetLights(r.Context(), token, selector))
+		writeResult(w, r, ResetLights(r.Context(), token, selector))
 	}
 }

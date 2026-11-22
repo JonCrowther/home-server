@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 )
@@ -43,7 +44,7 @@ func GetScenes(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var scenes []Scene
 		if err := getFromLIFX(r.Context(), token, apiBase+"/scenes", &scenes); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeLIFXError(w, r, err)
 			return
 		}
 		writeJSON(w, scenes)
@@ -61,12 +62,16 @@ func SetScene(token string) http.HandlerFunc {
 			return
 		}
 
-		writeResult(w, ActivateScene(r.Context(), token, r.PathValue("uuid"), opts))
+		writeResult(w, r, ActivateScene(r.Context(), token, r.PathValue("uuid"), opts))
 	}
 }
 
 // ActivateScene activates the scene with the given UUID.
 func ActivateScene(ctx context.Context, token, uuid string, opts SceneOptions) error {
 	endpoint := apiBase + "/scenes/scene_id:" + url.PathEscape(uuid) + "/activate"
-	return sendToLIFX(ctx, http.MethodPut, token, endpoint, opts)
+	if err := sendToLIFX(ctx, http.MethodPut, token, endpoint, opts); err != nil {
+		return err
+	}
+	slog.Info("scene activated", "scene", uuid)
+	return nil
 }

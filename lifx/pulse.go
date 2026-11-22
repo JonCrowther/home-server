@@ -3,6 +3,7 @@ package lifx
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -23,6 +24,7 @@ func CelebrateGoal(ctx context.Context, token, selector string, from, to Colour)
 		Period:     0.5,
 		Cycles:     15,
 	}
+	slog.Info("celebrating goal", "selector", selector, "from", from, "to", to)
 	if err := SetPulse(ctx, token, selector, opts); err != nil {
 		return fmt.Errorf("pulsing: %w", err)
 	}
@@ -32,9 +34,13 @@ func CelebrateGoal(ctx context.Context, token, selector string, from, to Colour)
 	wait := time.Duration(opts.Period * opts.Cycles * float64(time.Second))
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("cancelled mid-celebration, lights not reset: %w", ctx.Err())
 	case <-time.After(wait):
 	}
 
-	return ResetLights(ctx, token, selector)
+	if err := ResetLights(ctx, token, selector); err != nil {
+		return fmt.Errorf("resetting after celebration: %w", err)
+	}
+	slog.Info("goal celebration finished", "selector", selector)
+	return nil
 }

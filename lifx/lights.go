@@ -97,7 +97,7 @@ func LoadLights(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var raw []lifxLight
 		if err := getFromLIFX(r.Context(), token, apiBase+"/lights", &raw); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeLIFXError(w, r, err)
 			return
 		}
 

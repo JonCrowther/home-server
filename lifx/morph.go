@@ -72,6 +72,6 @@ func Morph(token string) http.HandlerFunc {
 			return
 		}
 
-		writeResult(w, SetMorph(r.Context(), token, r.PathValue("selector"), opts))
+		writeResult(w, r, SetMorph(r.Context(), token, r.PathValue("selector"), opts))
 	}
 }

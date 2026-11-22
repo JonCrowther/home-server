@@ -44,6 +44,6 @@ func Breathe(token string) http.HandlerFunc {
 			return
 		}
 
-		writeResult(w, SetBreathe(r.Context(), token, r.PathValue("selector"), opts))
+		writeResult(w, r, SetBreathe(r.Context(), token, r.PathValue("selector"), opts))
 	}
 }

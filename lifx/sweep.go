@@ -93,6 +93,9 @@ func RunSweep(ctx context.Context, token string, opts SweepOptions) error {
 		return errors.New("sweep step must be positive")
 	}
 
+	slog.Info("sweep started", "lights", opts.Lights, "colour", opts.Colour,
+		"background", opts.Background, "step", opts.Step, "passes", opts.Passes)
+
 	ticker := time.NewTicker(opts.Step)
 	defer ticker.Stop()
 
@@ -116,7 +119,11 @@ func RunSweep(ctx context.Context, token string, opts SweepOptions) error {
 		}
 	}
 
-	return activateAllWarm(ctx, token)
+	if err := activateAllWarm(ctx, token); err != nil {
+		return err
+	}
+	slog.Info("sweep finished")
+	return nil
 }
 
 // Sweep returns a handler that starts a sweep across the lamps, e.g.

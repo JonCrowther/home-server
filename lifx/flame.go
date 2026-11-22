@@ -45,6 +45,6 @@ func Flame(token string) http.HandlerFunc {
 			return
 		}
 
-		writeResult(w, SetFlame(r.Context(), token, r.PathValue("selector"), opts))
+		writeResult(w, r, SetFlame(r.Context(), token, r.PathValue("selector"), opts))
 	}
 }
