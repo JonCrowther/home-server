@@ -22,6 +22,11 @@ import (
 var defaultLogLevel = "INFO"
 
 func main() {
+	if err := loadAppOptions(appOptionsPath); err != nil {
+		fmt.Fprintln(os.Stderr, "loading Home Assistant app options:", err)
+		os.Exit(1)
+	}
+
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(envOr("LOG_LEVEL", defaultLogLevel))); err != nil {
 		fmt.Fprintln(os.Stderr, "invalid LOG_LEVEL:", err)

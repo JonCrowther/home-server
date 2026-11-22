@@ -1,0 +1,28 @@
+# Home Assistant app definition. `make app-deploy` copies this, the app
+# Dockerfile and the source to Home Assistant's local apps folder, and Home
+# Assistant builds the image on the Pi.
+name: Home Server
+description: LIFX light effects and NHL goal celebrations
+# Bump this to make Home Assistant offer an update after deploying new code,
+# or use Rebuild on the app's page.
+version: "0.1.0"
+slug: home_server
+arch:
+  - aarch64
+startup: application
+boot: auto
+
+ports:
+  8080/tcp: 8080
+ports_description:
+  8080/tcp: Home server HTTP API
+
+# Shown as a form on the app's Configuration tab; written to
+# /data/options.json, which app.go turns into environment variables.
+# TZ comes from Home Assistant's own time zone setting.
+options:
+  lifx_token: ""
+  log_level: INFO
+schema:
+  lifx_token: password
+  log_level: list(DEBUG|INFO|WARN|ERROR)

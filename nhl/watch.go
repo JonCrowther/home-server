@@ -278,6 +278,8 @@ func watchGame(ctx context.Context, token, gameID, teamAbbrev string) error {
 	// Look the colours up once per watch rather than on every goal.
 	from, to := goalColours(ctx, teamAbbrev)
 
+	slog.Info("watching game", "game", gameID, "team", teamAbbrev)
+
 	var prev *team
 	for {
 		wait := pollInterval
